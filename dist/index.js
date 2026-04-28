@@ -84849,6 +84849,15 @@ async function run() {
         else {
             setOutput('cache-hit', false);
         }
+        // Wings activation (experimental). Exports the env vars
+        // mise's HTTP layer reads to decide whether to rewrite
+        // tool-install URLs through the wings cache. Done before
+        // `setupMise` so any download triggered by `setupMise`
+        // itself (e.g. fetching the mise binary) doesn't slip
+        // through unaccelerated. Auth is the runner's GHA OIDC
+        // token, fetched lazily by mise on first use — the
+        // action just flips the gate.
+        setupWings();
         const version = getInput('version');
         const fetchFromGitHub = getBooleanInput('fetch_from_github');
         await setupMise(version, fetchFromGitHub);
@@ -84874,6 +84883,44 @@ async function run() {
             setFailed(err.message);
         else
             throw err;
+    }
+}
+/**
+ * Activate mise-wings for subsequent mise invocations in this
+ * workflow run.
+ *
+ * The action's job is intentionally minimal: it only exports
+ * `MISE_WINGS_ENABLED=1` (and `MISE_WINGS_HOST` if overridden).
+ * Mise itself owns the OIDC → wings session exchange — when it
+ * sees `MISE_WINGS_ENABLED=1` and detects the GHA OIDC env vars
+ * (`ACTIONS_ID_TOKEN_REQUEST_URL` + `ACTIONS_ID_TOKEN_REQUEST_TOKEN`),
+ * it fetches the runner's OIDC token, exchanges it at the
+ * proxy's `POST /auth` route, and caches the resulting session
+ * JWT for the rest of the process.
+ *
+ * Pre-flight check: `id-token: write` permission must be
+ * declared at the workflow or job level for the OIDC env vars
+ * to be present. We log a warning here when wings is enabled
+ * but the env vars are absent — without this hint, the user
+ * sees a transparent "wings configured but doing nothing"
+ * which is hard to debug.
+ */
+function setupWings() {
+    if (!getBooleanInput('wings_enabled')) {
+        return;
+    }
+    const host = getInput('wings_host') || 'mise-wings.en.dev';
+    exportVariable('MISE_WINGS_ENABLED', '1');
+    exportVariable('MISE_WINGS_HOST', host);
+    info(`mise-wings: enabled (host=${host}). mise will exchange the runner's OIDC token for a wings session on first use.`);
+    const oidcUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+    const oidcToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+    if (!oidcUrl || !oidcToken) {
+        warning('mise-wings: GHA OIDC env vars are missing. Add ' +
+            '`permissions: id-token: write` at the workflow or job ' +
+            'level so the runner can mint OIDC tokens. Without this, ' +
+            'mise falls through to direct-origin fetches and the cache ' +
+            'is bypassed.');
     }
 }
 async function exportMiseEnv() {
