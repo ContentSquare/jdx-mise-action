@@ -84849,14 +84849,23 @@ async function run() {
         else {
             setOutput('cache-hit', false);
         }
-        // Wings activation (experimental). Exports the env vars
-        // mise's HTTP layer reads to decide whether to rewrite
-        // tool-install URLs through the wings cache. Done before
-        // `setupMise` so any download triggered by `setupMise`
-        // itself (e.g. fetching the mise binary) doesn't slip
-        // through unaccelerated. Auth is the runner's GHA OIDC
-        // token, fetched lazily by mise on first use — the
-        // action just flips the gate.
+        // Wings opt-out hook (experimental). The mise binary
+        // auto-detects GHA OIDC and routes installs through the
+        // wings cache when the workflow has
+        // `permissions: id-token: write` and the linked Clerk org
+        // has a wings subscription — no input needed. The
+        // `wings_disabled` input is the explicit opt-out
+        // (exports `MISE_WINGS_ENABLED=0`).
+        //
+        // Note: `setupMise` fetches the mise binary itself with
+        // `curl`, which doesn't go through mise's HTTP layer —
+        // the wings rewriter only kicks in once the resulting
+        // mise binary runs `mise install` and friends. Ordering
+        // here is therefore irrelevant for binary acceleration;
+        // we just want the env vars set before any `mise`
+        // subcommand runs. Greptile + Gemini both flagged the
+        // previous comment as overstating what the early call
+        // accelerates.
         setupWings();
         const version = getInput('version');
         const fetchFromGitHub = getBooleanInput('fetch_from_github');
@@ -84886,41 +84895,29 @@ async function run() {
     }
 }
 /**
- * Activate mise-wings for subsequent mise invocations in this
- * workflow run.
+ * Forward the `wings_disabled` input to mise's env-var
+ * surface. The mise binary itself owns wings activation:
+ * it auto-detects GHA OIDC and routes installs through the
+ * cache transparently. The action's only job here is to let
+ * the user explicitly opt out via input rather than having
+ * to remember the env-var name.
  *
- * The action's job is intentionally minimal: it only exports
- * `MISE_WINGS_ENABLED=1` (and `MISE_WINGS_HOST` if overridden).
- * Mise itself owns the OIDC → wings session exchange — when it
- * sees `MISE_WINGS_ENABLED=1` and detects the GHA OIDC env vars
- * (`ACTIONS_ID_TOKEN_REQUEST_URL` + `ACTIONS_ID_TOKEN_REQUEST_TOKEN`),
- * it fetches the runner's OIDC token, exchanges it at the
- * proxy's `POST /auth` route, and caches the resulting session
- * JWT for the rest of the process.
+ * `wings_disabled: true` → exports `MISE_WINGS_ENABLED=0`,
+ * which mise reads as a hard force-off. `false` (default)
+ * leaves the env var unset and mise's auto-detection
+ * decides.
  *
- * Pre-flight check: `id-token: write` permission must be
- * declared at the workflow or job level for the OIDC env vars
- * to be present. We log a warning here when wings is enabled
- * but the env vars are absent — without this hint, the user
- * sees a transparent "wings configured but doing nothing"
- * which is hard to debug.
+ * No proactive `id-token: write` warning here. Auto-detect
+ * is supposed to be silent on the unhappy path — a workflow
+ * without `id-token: write` simply doesn't activate wings,
+ * the cache is bypassed, and tool installs work as before.
+ * Surfacing a noisy warning would penalize every non-wings
+ * workflow that uses this action.
  */
 function setupWings() {
-    if (!getBooleanInput('wings_enabled')) {
-        return;
-    }
-    const host = getInput('wings_host') || 'mise-wings.en.dev';
-    exportVariable('MISE_WINGS_ENABLED', '1');
-    exportVariable('MISE_WINGS_HOST', host);
-    info(`mise-wings: enabled (host=${host}). mise will exchange the runner's OIDC token for a wings session on first use.`);
-    const oidcUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
-    const oidcToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-    if (!oidcUrl || !oidcToken) {
-        warning('mise-wings: GHA OIDC env vars are missing. Add ' +
-            '`permissions: id-token: write` at the workflow or job ' +
-            'level so the runner can mint OIDC tokens. Without this, ' +
-            'mise falls through to direct-origin fetches and the cache ' +
-            'is bypassed.');
+    if (getBooleanInput('wings_disabled')) {
+        exportVariable('MISE_WINGS_ENABLED', '0');
+        info('mise-wings: forced off via `wings_disabled: true`. Tool installs go direct to upstream origins.');
     }
 }
 async function exportMiseEnv() {

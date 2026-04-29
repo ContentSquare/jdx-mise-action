@@ -85,34 +85,28 @@ inputs:
     description: "Automatically load mise env vars into GITHUB_ENV. Note that PATH modifications are not part of this."
     required: false
     default: "true"
-  wings_enabled:
+  wings_disabled:
     description: |
-      [experimental] Route mise's tool installs through the
-      mise-wings asset cache (https://mise-wings.en.dev), a paid
-      regional cache for npm tarballs and GitHub release artifacts.
+      [experimental] Opt out of the mise-wings asset cache
+      (https://mise-wings.en.dev) for this action invocation.
 
-      When `true`, the action sets `MISE_WINGS_ENABLED=1` so the
-      installed mise binary's HTTP layer transparently rewrites
-      tool-install URLs to the per-org wings cache subdomains.
+      Recent versions of mise auto-detect GHA OIDC and route tool
+      installs through the wings cache when the workflow has
+      `permissions: id-token: write` and the linked Clerk org
+      holds an active wings subscription. Authentication is
+      automatic — no `mise wings login` step, no long-lived
+      secret to rotate.
 
-      Authentication is automatic via the runner's GitHub OIDC
-      identity — no `mise wings login` step needed. The workflow
-      must declare `permissions: id-token: write` so the OIDC
-      token-issuer env vars are populated; without that, mise
-      falls through to direct-origin fetches and logs a warning.
+      Set `wings_disabled: true` to force the cache off (the
+      action exports `MISE_WINGS_ENABLED=0`). Useful when
+      debugging "does mise behave the same without the cache"
+      questions or testing in a non-subscribed fork.
 
-      Requires an active mise-wings subscription on a Clerk org
-      linked to the GitHub org running the workflow. Default
-      `false` so existing workflows aren't affected.
+      Default `false` lets mise's own auto-detection decide.
+      Older mise binaries that don't speak wings ignore the env
+      var entirely, so this is forward-compatible.
     required: false
     default: "false"
-  wings_host:
-    description: |
-      [experimental] Apex host for the mise-wings service. Override
-      only when pointing at a private/staging deployment (e.g.
-      `mise-wings-staging.en.dev`). Default targets production.
-    required: false
-    default: "mise-wings.en.dev"
 outputs:
   cache-hit:
     description: A boolean value to indicate if a cache was hit.
