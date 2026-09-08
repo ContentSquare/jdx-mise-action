@@ -64,6 +64,14 @@ absolute ISO dates and timestamps. The action selects the newest stable,
 non-draft mise release published before the cutoff. An explicit `version`
 takes precedence over `minimum_release_age`.
 
+This defaults to `1h`. Version resolution then goes through the GitHub releases
+API, which only lists published releases, rather than `mise.jdx.dev/VERSION`,
+which can advertise a release before its assets are published — a race that
+fails the install with a 404 ([jdx/mise-action#616][mise-action-616]). Set it to
+an empty string to resolve from `mise.jdx.dev/VERSION` instead.
+
+[mise-action-616]: https://github.com/jdx/mise-action/issues/616
+
 ## Environment and PATH Export
 
 The action exports environment variables and PATH entries configured by mise

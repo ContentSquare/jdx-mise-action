@@ -10,9 +10,12 @@ inputs:
     description: The version of mise to use. If not specified, will use the latest release.
   minimum_release_age:
     required: false
+    default: "1h"
     description: |
       When version is not specified, only install stable mise releases older than this threshold.
       Accepts relative durations such as 24h, 7d, 6mo, or 1y, and absolute ISO dates or timestamps.
+      Defaults to 1h so version resolution uses the GitHub releases API, which only lists published
+      releases, instead of mise.jdx.dev/VERSION, which can advertise a release before its assets exist.
   sha256:
     required: false
     description: The SHA256 checksum of the mise binary to verify the download.
